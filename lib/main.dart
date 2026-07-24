@@ -293,9 +293,8 @@ class NeonBackdrop extends StatelessWidget {
   }
 }
 
-/// Тугмаи шинокунандаи неон бо аломати "+" — ҳамеша дар кунҷи поёни рост
-/// (тавассути Scaffold.floatingActionButton + FloatingActionButtonLocation.endFloat),
-/// айнан мисли WhatsApp.
+/// Тугмаи шинокунандаи неон — истифода мешавад ҳамчун Scaffold.floatingActionButton
+/// бо floatingActionButtonLocation: endFloat (кунҷи поёни рост), айнан мисли WhatsApp.
 class NeonFab extends StatelessWidget {
   final VoidCallback onPressed;
   final IconData icon;
@@ -435,7 +434,7 @@ class _AuthGateState extends State<AuthGate> {
 }
 
 // ============================================================
-// ЭКРАНИ АСОСӢ — Tabs + FAB ба услуби WhatsApp
+// ЭКРАНИ АСОСӢ — AppBar калон + ChatAI + чатҳо + Bottom Navigation
 // ============================================================
 class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});
@@ -444,21 +443,8 @@ class ChatListScreen extends StatefulWidget {
   State<ChatListScreen> createState() => _ChatListScreenState();
 }
 
-class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProviderStateMixin {
-  late final TabController _tabController;
-
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: 3, vsync: this);
-    _tabController.addListener(() => setState(() {}));
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
+class _ChatListScreenState extends State<ChatListScreen> {
+  int _currentIndex = 0;
 
   void _openNewChatSheet() {
     showModalBottomSheet(
@@ -468,14 +454,25 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
     );
   }
 
-  // Тугмаи шинокунанда — танҳо дар "Чатҳо" ва "Зангҳо" нишон дода мешавад,
-  // дар "Танзимот" пинҳон аст (айнан мисли WhatsApp).
+  void _openProfileSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _ProfileSheet(),
+    );
+  }
+
+  // Тугмаи "+" — дар ҳар бахш вазифаи мувофиқ дорад, айнан мисли WhatsApp
   Widget? _buildFab() {
-    switch (_tabController.index) {
+    switch (_currentIndex) {
       case 0:
         return NeonFab(onPressed: _openNewChatSheet);
       case 1:
-        return NeonFab(onPressed: () => showComingSoonSnack(context, 'Занг'));
+        return NeonFab(icon: Icons.camera_alt_rounded, onPressed: () => showComingSoonSnack(context, 'Статуси нав'));
+      case 2:
+        return NeonFab(onPressed: () => showComingSoonSnack(context, 'Ҷамъияти нав'));
+      case 3:
+        return NeonFab(onPressed: () => showComingSoonSnack(context, 'Занги нав'));
       default:
         return null;
     }
@@ -487,19 +484,21 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
       backgroundColor: AppColors.background,
       floatingActionButton: _buildFab(),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+      bottomNavigationBar: _buildBottomNav(),
       body: NeonBackdrop(
         child: SafeArea(
+          bottom: false,
           child: Column(
             children: [
               _buildAppBar(),
-              _buildTabBar(),
               Expanded(
-                child: TabBarView(
-                  controller: _tabController,
+                child: IndexedStack(
+                  index: _currentIndex,
                   children: const [
                     _ChatsTab(),
+                    _StatusTab(),
+                    _CommunitiesTab(),
                     _CallsTab(),
-                    _SettingsTab(),
                   ],
                 ),
               ),
@@ -510,18 +509,33 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
     );
   }
 
+  // Сарлавҳаи боло — номи калони "ChatApp" + камера + ҷустуҷӯ + менюи се нуқта
   Widget _buildAppBar() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+      padding: const EdgeInsets.fromLTRB(18, 14, 14, 8),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const AppLogo(),
           Row(
             children: [
-              _iconButton(Icons.search_rounded, onTap: () => showComingSoonSnack(context, 'Ҷустуҷӯ')),
+              const AppLogo(size: 30),
               const SizedBox(width: 10),
-              _iconButton(Icons.more_vert_rounded, onTap: () => showComingSoonSnack(context, 'Феҳристи иловагӣ')),
+              ShaderMask(
+                shaderCallback: (bounds) => AppColors.neonGradient.createShader(bounds),
+                child: const Text(
+                  'ChatApp',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 22, letterSpacing: 0.2),
+                ),
+              ),
+            ],
+          ),
+          Row(
+            children: [
+              _iconButton(Icons.camera_alt_rounded, onTap: () => showComingSoonSnack(context, 'Камера')),
+              const SizedBox(width: 8),
+              _iconButton(Icons.search_rounded, onTap: () => showComingSoonSnack(context, 'Ҷустуҷӯ')),
+              const SizedBox(width: 8),
+              _iconButton(Icons.more_vert_rounded, onTap: _openProfileSheet),
             ],
           ),
         ],
@@ -534,34 +548,42 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
       onTap: onTap,
       child: GlassContainer(
         borderRadius: 14,
-        padding: const EdgeInsets.all(10),
-        child: Icon(icon, color: AppColors.textPrimary, size: 20),
+        padding: const EdgeInsets.all(9),
+        child: Icon(icon, color: AppColors.textPrimary, size: 19),
       ),
     );
   }
 
-  // TabBar-и болои феҳрист — "Чатҳо / Зангҳо / Танзимот", айнан ҷои
-  // ин се бахши WhatsApp-ро иваз мекунад (навигатсияи шинос).
-  Widget _buildTabBar() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-      child: GlassContainer(
-        borderRadius: 16,
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-        child: TabBar(
-          controller: _tabController,
-          indicator: BoxDecoration(gradient: AppColors.neonGradient, borderRadius: BorderRadius.circular(12)),
-          indicatorSize: TabBarIndicatorSize.tab,
-          dividerColor: Colors.transparent,
-          labelColor: AppColors.background,
-          unselectedLabelColor: AppColors.textSecondary,
-          labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
-          unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
-          tabs: const [
-            Tab(text: 'Чатҳо'),
-            Tab(text: 'Зангҳо'),
-            Tab(text: 'Танзимот'),
-          ],
+  // Bottom Navigation Bar — Чатҳо / Статусҳо / Ҷамъиятҳо / Зангҳо (пайдарпаии дақиқ)
+  Widget _buildBottomNav() {
+    return ClipRect(
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+        child: Container(
+          decoration: const BoxDecoration(
+            color: AppColors.glassFill,
+            border: Border(top: BorderSide(color: AppColors.glassBorder, width: 1)),
+          ),
+          child: SafeArea(
+            top: false,
+            child: BottomNavigationBar(
+              currentIndex: _currentIndex,
+              onTap: (i) => setState(() => _currentIndex = i),
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              type: BottomNavigationBarType.fixed,
+              selectedItemColor: AppColors.neonEmerald,
+              unselectedItemColor: AppColors.textSecondary,
+              selectedLabelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5),
+              unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 11.5),
+              items: const [
+                BottomNavigationBarItem(icon: Icon(Icons.chat_bubble_rounded), label: 'Чатҳо'),
+                BottomNavigationBarItem(icon: Icon(Icons.donut_large), label: 'Статусҳо'),
+                BottomNavigationBarItem(icon: Icon(Icons.groups_rounded), label: 'Ҷамъиятҳо'),
+                BottomNavigationBarItem(icon: Icon(Icons.call_rounded), label: 'Зангҳо'),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -569,7 +591,7 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
 }
 
 // ============================================================
-// БАХШИ "ЧАТҲО" (феҳристи чат ба тарзи WhatsApp)
+// БАХШИ "ЧАТҲО" — блоки ChatAI + феҳристи чатҳо
 // ============================================================
 class _ChatsTab extends StatelessWidget {
   const _ChatsTab();
@@ -577,8 +599,10 @@ class _ChatsTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 90),
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 100),
       children: const [
+        _ChatAIBanner(),
+        SizedBox(height: 4),
         _ChatTile(conversation: AppChats.aiAssistant, highlighted: true),
         SizedBox(height: 6),
         _ChatTile(conversation: AppChats.general),
@@ -587,8 +611,120 @@ class _ChatsTab extends StatelessWidget {
   }
 }
 
-/// Сатри чат — сохтори дуқабата (ном+вақт, паём+бирча) айнан мисли WhatsApp:
-/// аватар дар чап, ном ва вақт дар сатри боло, паёми охирин дар сатри поён.
+/// Блоки ChatAI (мисли Meta AI) — имконияти сохтани расм, мусиқӣ ва видео.
+/// Пахши ҳар чип корбарро ба чати AI Ассистент мебарад бо матни омодашуда
+/// дар майдони вуруд (то Gemini API-и воқеӣ пайваст шавад).
+class _ChatAIBanner extends StatelessWidget {
+  const _ChatAIBanner();
+
+  void _openWithPrompt(BuildContext context, String prompt) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChatDetailScreen(conversation: AppChats.aiAssistant, initialText: prompt),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassContainer(
+      borderRadius: 22,
+      glow: true,
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: const BoxDecoration(shape: BoxShape.circle, gradient: AppColors.neonGradient),
+                child: const Icon(Icons.auto_awesome_rounded, color: AppColors.background, size: 24),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('ChatAI', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w800, fontSize: 16)),
+                    SizedBox(height: 2),
+                    Text('Расм, мусиқӣ ё видео эҷод кунед', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: _AiActionChip(
+                  icon: Icons.image_rounded,
+                  label: 'Расм',
+                  onTap: () => _openWithPrompt(context, 'Лутфан барои ман расме эҷод кун: '),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _AiActionChip(
+                  icon: Icons.music_note_rounded,
+                  label: 'Мусиқӣ',
+                  onTap: () => _openWithPrompt(context, 'Лутфан барои ман мусиқие эҷод кун: '),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _AiActionChip(
+                  icon: Icons.videocam_rounded,
+                  label: 'Видео',
+                  onTap: () => _openWithPrompt(context, 'Лутфан барои ман видеое эҷод кун: '),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AiActionChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  const _AiActionChip({required this.icon, required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: AppColors.glassFill,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppColors.glassBorder),
+          ),
+          child: Column(
+            children: [
+              Icon(icon, color: AppColors.neonCyan, size: 20),
+              const SizedBox(height: 4),
+              Text(label, style: const TextStyle(color: AppColors.textPrimary, fontSize: 11.5, fontWeight: FontWeight.w600)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Сатри чат — сохтори дуқабатаи WhatsApp: аватар дар чап, ном+вақт дар боло,
+/// паёми охирин дар поён.
 class _ChatTile extends StatelessWidget {
   final ChatConversation conversation;
   final bool highlighted;
@@ -666,7 +802,6 @@ class _ChatTile extends StatelessWidget {
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // САТРИ БОЛО: ном (+ бирчаи AI) ......... вақт
                         Row(
                           children: [
                             Expanded(
@@ -708,7 +843,6 @@ class _ChatTile extends StatelessWidget {
                           ],
                         ),
                         const SizedBox(height: 3),
-                        // САТРИ ПОЁН: паёми охирин
                         Text(
                           preview,
                           maxLines: 1,
@@ -728,7 +862,7 @@ class _ChatTile extends StatelessWidget {
   }
 }
 
-/// Феҳристи интихоби чат ҳангоми пахши тугмаи "+" (мисли пахши FAB дар WhatsApp)
+/// Феҳристи интихоб ҳангоми пахши "+" — илова кардани чат/контакти нав
 class _NewChatSheet extends StatelessWidget {
   const _NewChatSheet();
 
@@ -751,7 +885,7 @@ class _NewChatSheet extends StatelessWidget {
                 decoration: BoxDecoration(color: AppColors.glassBorder, borderRadius: BorderRadius.circular(4)),
               ),
             ),
-            const Text('Чати нав', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700, fontSize: 16)),
+            const Text('Контакти нав', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700, fontSize: 16)),
             const SizedBox(height: 12),
             ...AppChats.all.map(
               (c) => ListTile(
@@ -782,7 +916,109 @@ class _NewChatSheet extends StatelessWidget {
 }
 
 // ============================================================
-// БАХШИ "ЗАНГҲО" (ҳолати холии воқеӣ, мисли WhatsApp вақте занге нест)
+// БАХШИ "СТАТУСҲО" (Updates)
+// ============================================================
+class _StatusTab extends StatelessWidget {
+  const _StatusTab();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 100),
+      children: [
+        Row(
+          children: [
+            Stack(
+              children: [
+                Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: AppColors.surface,
+                    border: Border.all(color: AppColors.glassBorder),
+                  ),
+                  child: const Icon(Icons.person_rounded, color: AppColors.textSecondary, size: 26),
+                ),
+                Positioned(
+                  right: -2,
+                  bottom: -2,
+                  child: Container(
+                    width: 20,
+                    height: 20,
+                    decoration: const BoxDecoration(shape: BoxShape.circle, gradient: AppColors.neonGradient),
+                    child: const Icon(Icons.add_rounded, color: AppColors.background, size: 14),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Тарихи ман', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700, fontSize: 15)),
+                  Text(
+                    'Барои иловаи навсозӣ зер кунед',
+                    style: TextStyle(color: AppColors.textSecondary.withOpacity(0.8), fontSize: 12.5),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 30),
+        Text(
+          'ЯГОН НАВСОЗӢ НЕСТ',
+          style: TextStyle(
+            color: AppColors.textSecondary.withOpacity(0.6),
+            fontSize: 11.5,
+            letterSpacing: 1.2,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Навсозиҳои дӯстони шумо дар ин ҷо намоён мешаванд',
+          style: TextStyle(color: AppColors.textSecondary.withOpacity(0.7), fontSize: 12.5),
+        ),
+      ],
+    );
+  }
+}
+
+// ============================================================
+// БАХШИ "ҶАМЪИЯТҲО" (Communities)
+// ============================================================
+class _CommunitiesTab extends StatelessWidget {
+  const _CommunitiesTab();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.groups_rounded, color: AppColors.textSecondary.withOpacity(0.5), size: 56),
+            const SizedBox(height: 16),
+            const Text('Ягон ҷамъият нест', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700, fontSize: 16)),
+            const SizedBox(height: 8),
+            Text(
+              'Ҷамъиятҳо якчанд гурӯҳро дар як ҷо ҷамъ мекунанд',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppColors.textSecondary.withOpacity(0.8), fontSize: 13),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================
+// БАХШИ "ЗАНГҲО" (Calls)
 // ============================================================
 class _CallsTab extends StatelessWidget {
   const _CallsTab();
@@ -812,14 +1048,15 @@ class _CallsTab extends StatelessWidget {
 }
 
 // ============================================================
-// БАХШИ "ТАНЗИМОТ" (профили корбари беном + баромадан)
+// ФЕҲРИСТИ ПРОФИЛ (аз менюи се нуқта)
 // ============================================================
-class _SettingsTab extends StatelessWidget {
-  const _SettingsTab();
+class _ProfileSheet extends StatelessWidget {
+  const _ProfileSheet();
 
   Future<void> _signOut(BuildContext context) async {
     await FirebaseAuth.instance.signOut();
     if (!context.mounted) return;
+    Navigator.of(context).pop();
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const AuthGate()),
       (route) => false,
@@ -831,38 +1068,47 @@ class _SettingsTab extends StatelessWidget {
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '—';
     final shortId = uid.length > 12 ? uid.substring(0, 12) : uid;
 
-    return ListView(
-      padding: const EdgeInsets.all(20),
-      children: [
-        GlassContainer(
-          borderRadius: 20,
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            children: [
-              Container(
-                width: 72,
-                height: 72,
-                decoration: const BoxDecoration(shape: BoxShape.circle, gradient: AppColors.neonGradient),
-                child: const Icon(Icons.person_rounded, color: AppColors.background, size: 36),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      child: GlassContainer(
+        borderRadius: 24,
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 16),
+              decoration: BoxDecoration(color: AppColors.glassBorder, borderRadius: BorderRadius.circular(4)),
+            ),
+            Container(
+              width: 64,
+              height: 64,
+              decoration: const BoxDecoration(shape: BoxShape.circle, gradient: AppColors.neonGradient),
+              child: const Icon(Icons.person_rounded, color: AppColors.background, size: 32),
+            ),
+            const SizedBox(height: 12),
+            const Text('Корбари беном', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700, fontSize: 15)),
+            const SizedBox(height: 2),
+            Text('ID: $shortId...', style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => _signOut(context),
+                icon: const Icon(Icons.logout_rounded, color: AppColors.neonCyan),
+                label: const Text('Баромадан', style: TextStyle(color: AppColors.textPrimary)),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: AppColors.glassBorder),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
               ),
-              const SizedBox(height: 14),
-              const Text('Корбари беном', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700, fontSize: 16)),
-              const SizedBox(height: 4),
-              Text('ID: $shortId...', style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
-            ],
-          ),
+            ),
+          ],
         ),
-        const SizedBox(height: 16),
-        GlassContainer(
-          borderRadius: 16,
-          padding: EdgeInsets.zero,
-          child: ListTile(
-            leading: const Icon(Icons.logout_rounded, color: AppColors.neonCyan),
-            title: const Text('Баромадан', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600)),
-            onTap: () => _signOut(context),
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
@@ -872,7 +1118,8 @@ class _SettingsTab extends StatelessWidget {
 // ============================================================
 class ChatDetailScreen extends StatefulWidget {
   final ChatConversation conversation;
-  const ChatDetailScreen({super.key, required this.conversation});
+  final String? initialText;
+  const ChatDetailScreen({super.key, required this.conversation, this.initialText});
 
   @override
   State<ChatDetailScreen> createState() => _ChatDetailScreenState();
@@ -887,6 +1134,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       .collection('chats')
       .doc(widget.conversation.id)
       .collection('messages');
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initialText != null && widget.initialText!.isNotEmpty) {
+      _controller.text = widget.initialText!;
+      _controller.selection = TextSelection.collapsed(offset: _controller.text.length);
+    }
+  }
 
   @override
   void dispose() {
@@ -1001,7 +1257,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     );
   }
 
-  // Сарлавҳа бо ду тугмаи занг (video/voice), айнан ба тарзи WhatsApp
   Widget _buildHeader(ChatConversation convo) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(6, 10, 6, 10),
