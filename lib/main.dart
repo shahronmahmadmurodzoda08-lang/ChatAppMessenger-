@@ -1,9 +1,40 @@
 import 'dart:async';
 import 'dart:ui';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   runApp(const ChatApp());
+}
+
+// ============================================================
+// FIREBASE CONFIG
+// ============================================================
+class DefaultFirebaseOptions {
+  static FirebaseOptions get currentPlatform {
+    if (kIsWeb) {
+      return web;
+    }
+    throw UnsupportedError(
+      'DefaultFirebaseOptions барои ин платформа ҳоло танзим нашудааст. '
+      'Лутфан аввал дар FlutLab/Web озмоиш кунед.',
+    );
+  }
+
+  static const FirebaseOptions web = FirebaseOptions(
+    apiKey: 'AIzaSyDO8rw1NvSAosX7Z0Nj4_eV1hkBAB6OW1A',
+    authDomain: 'chatapp-57fb2.firebaseapp.com',
+    projectId: 'chatapp-57fb2',
+    storageBucket: 'chatapp-57fb2.firebasestorage.app',
+    messagingSenderId: '712168365642',
+    appId: '1:712168365642:web:6ea9ac370500cc8b6310b8',
+    measurementId: 'G-D78QHLSTVN',
+  );
 }
 
 // ============================================================
@@ -17,7 +48,7 @@ class ChatApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
-      home: const ChatListScreen(),
+      home: const AuthGate(),
     );
   }
 }
@@ -29,8 +60,8 @@ class AppColors {
   static const Color background = Color(0xFF060B14);
   static const Color backgroundSecondary = Color(0xFF0B121F);
   static const Color surface = Color(0xFF101826);
-  static const Color glassFill = Color(0x14FFFFFF); // сафед 8%
-  static const Color glassBorder = Color(0x26FFFFFF); // сафед 15%
+  static const Color glassFill = Color(0x14FFFFFF);
+  static const Color glassBorder = Color(0x26FFFFFF);
   static const Color neonEmerald = Color(0xFF12F7B5);
   static const Color neonCyan = Color(0xFF22D3EE);
   static const Color textPrimary = Color(0xFFEAF2F5);
@@ -63,142 +94,80 @@ class AppTheme {
 }
 
 // ============================================================
-// MODELS
+// УТИЛИТАИ УМУМӢ
 // ============================================================
+void showComingSoonSnack(BuildContext context, String feature) {
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text('$feature ба зудӣ дастрас мешавад'),
+      backgroundColor: AppColors.surface,
+      behavior: SnackBarBehavior.floating,
+    ),
+  );
+}
 
-/// Модели ягонаи паём — ҳам барои паёмҳои корбар ва ҳам паёмҳои AI-бот.
-/// isMe   -> паём аз тарафи корбари ҷорӣ фиристода шудааст
-/// isAI   -> паём аз тарафи AI Assistant омадааст
+// ============================================================
+// МОДЕЛИ ПАЁМ (Firestore)
+// ============================================================
 class ChatMessage {
   final String id;
   final String text;
-  final DateTime timestamp;
-  final bool isMe;
+  final String senderId;
   final bool isAI;
+  final DateTime? timestamp;
 
   ChatMessage({
     required this.id,
     required this.text,
-    required this.isMe,
-    this.isAI = false,
-    DateTime? timestamp,
-  }) : timestamp = timestamp ?? DateTime.now();
+    required this.senderId,
+    required this.isAI,
+    this.timestamp,
+  });
+
+  factory ChatMessage.fromDoc(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data();
+    return ChatMessage(
+      id: doc.id,
+      text: (data['text'] ?? '') as String,
+      senderId: (data['senderId'] ?? '') as String,
+      isAI: (data['isAI'] ?? false) as bool,
+      timestamp: (data['createdAt'] as Timestamp?)?.toDate(),
+    );
+  }
 }
 
-/// Модели як суҳбат (чат) — метавонад суҳбати AI ё суҳбати оддии корбар бошад
 class ChatConversation {
   final String id;
   final String name;
   final IconData avatarIcon;
   final bool isAIChat;
-  String lastMessage;
-  DateTime lastTime;
-  bool online;
-  final List<ChatMessage> messages;
 
-  ChatConversation({
+  const ChatConversation({
     required this.id,
     required this.name,
     required this.avatarIcon,
     this.isAIChat = false,
-    this.lastMessage = '',
-    DateTime? lastTime,
-    this.online = false,
-    List<ChatMessage>? messages,
-  })  : lastTime = lastTime ?? DateTime.now(),
-        messages = messages ?? [];
+  });
 }
 
-// ============================================================
-// MOCK / LOCAL DATA (то пайвастшавии Firebase истифода мешавад)
-// ============================================================
-class MockData {
-  static List<ChatConversation> getConversations() {
-    return [
-      ChatConversation(
-        id: 'ai_assistant',
-        name: 'AI Ассистент',
-        avatarIcon: Icons.auto_awesome_rounded,
-        isAIChat: true,
-        online: true,
-        lastMessage: 'Ба шумо чӣ тавр кӯмак карда метавонам?',
-        messages: [
-          ChatMessage(
-            id: 'm1',
-            text:
-                'Салом! Ман ёрдамчии сунъии ҳушманди шумо ҳастам. Чӣ гуна метавонам кӯмак кунам?',
-            isMe: false,
-            isAI: true,
-            timestamp: DateTime.now().subtract(const Duration(minutes: 5)),
-          ),
-        ],
-      ),
-      ChatConversation(
-        id: 'u1',
-        name: 'Фаридун Раҳимов',
-        avatarIcon: Icons.person_rounded,
-        online: true,
-        lastMessage: 'Хуб, пагоҳ вомехӯрем',
-        messages: [
-          ChatMessage(
-              id: 'u1m1',
-              text: 'Салом, корҳо чӣ хел?',
-              isMe: false,
-              timestamp: DateTime.now().subtract(const Duration(hours: 2))),
-          ChatMessage(
-              id: 'u1m2',
-              text: 'Хуб, ташаккур! Ту чӣ?',
-              isMe: true,
-              timestamp: DateTime.now().subtract(const Duration(hours: 2))),
-          ChatMessage(
-              id: 'u1m3',
-              text: 'Хуб, пагоҳ вомехӯрем',
-              isMe: false,
-              timestamp: DateTime.now().subtract(const Duration(hours: 1))),
-        ],
-      ),
-      ChatConversation(
-        id: 'u2',
-        name: 'Мадина Каримова',
-        avatarIcon: Icons.person_rounded,
-        online: false,
-        lastMessage: 'Раҳмат барои файл',
-        messages: [
-          ChatMessage(
-              id: 'u2m1',
-              text: 'Файлро фиристодед?',
-              isMe: false,
-              timestamp: DateTime.now().subtract(const Duration(days: 1))),
-          ChatMessage(
-              id: 'u2m2',
-              text: 'Бале, дар боло',
-              isMe: true,
-              timestamp: DateTime.now().subtract(const Duration(days: 1))),
-          ChatMessage(
-              id: 'u2m3',
-              text: 'Раҳмат барои файл',
-              isMe: false,
-              timestamp: DateTime.now().subtract(const Duration(hours: 20))),
-        ],
-      ),
-      ChatConversation(
-        id: 'u3',
-        name: 'Гурӯҳи Дизайн',
-        avatarIcon: Icons.groups_rounded,
-        online: false,
-        lastMessage: 'Ҷаласа соати 15:00',
-        messages: [
-          ChatMessage(
-              id: 'u3m1',
-              text: 'Ҷаласа соати 15:00',
-              isMe: false,
-              timestamp: DateTime.now().subtract(const Duration(hours: 6))),
-        ],
-      ),
-    ];
-  }
+class AppChats {
+  static const aiAssistant = ChatConversation(
+    id: 'ai_assistant',
+    name: 'AI Ассистент',
+    avatarIcon: Icons.auto_awesome_rounded,
+    isAIChat: true,
+  );
+  static const general = ChatConversation(
+    id: 'general',
+    name: 'Чати умумӣ',
+    avatarIcon: Icons.groups_rounded,
+    isAIChat: false,
+  );
+  static const List<ChatConversation> all = [aiAssistant, general];
+}
 
-  static const List<String> aiReplies = [
+class MockAIReplies {
+  static const List<String> replies = [
     'Фаҳмидам! Ин дархостро дар лаҳзаи пайвастшавӣ ба Gemini API коркард мекунам.',
     'Хуб, ман ин масъаларо таҳлил карда, посух медиҳам.',
     'Ин фикри ҷолиб аст! Биёед дар бораи он бештар сӯҳбат кунем.',
@@ -208,9 +177,8 @@ class MockData {
 }
 
 // ============================================================
-// GLASSMORPHISM & БРЕНДИНГ (танҳо иконка, бе матн)
+// GLASSMORPHISM & БРЕНДИНГ
 // ============================================================
-
 class GlassContainer extends StatelessWidget {
   final Widget child;
   final double borderRadius;
@@ -266,7 +234,6 @@ class GlassContainer extends StatelessWidget {
   }
 }
 
-/// Логотипи барнома — танҳо иконкаи neon-градиентӣ, бе номи матнӣ
 class AppLogo extends StatelessWidget {
   final double size;
   const AppLogo({super.key, this.size = 34});
@@ -280,23 +247,14 @@ class AppLogo extends StatelessWidget {
         shape: BoxShape.circle,
         gradient: AppColors.neonGradient,
         boxShadow: [
-          BoxShadow(
-            color: AppColors.neonEmerald.withOpacity(0.5),
-            blurRadius: 16,
-            spreadRadius: 0.5,
-          ),
+          BoxShadow(color: AppColors.neonEmerald.withOpacity(0.5), blurRadius: 16, spreadRadius: 0.5),
         ],
       ),
-      child: Icon(
-        Icons.bolt_rounded,
-        color: AppColors.background,
-        size: size * 0.6,
-      ),
+      child: Icon(Icons.bolt_rounded, color: AppColors.background, size: size * 0.6),
     );
   }
 }
 
-/// Паси-замина бо нурҳои сабз/фирӯзаӣ барои умқи Glassmorphism
 class NeonBackdrop extends StatelessWidget {
   final Widget child;
   const NeonBackdrop({super.key, required this.child});
@@ -316,16 +274,8 @@ class NeonBackdrop extends StatelessWidget {
             ),
           ),
         ),
-        Positioned(
-          top: -80,
-          left: -60,
-          child: _blurCircle(AppColors.neonEmerald.withOpacity(0.25), 220),
-        ),
-        Positioned(
-          bottom: -100,
-          right: -70,
-          child: _blurCircle(AppColors.neonCyan.withOpacity(0.20), 260),
-        ),
+        Positioned(top: -80, left: -60, child: _blurCircle(AppColors.neonEmerald.withOpacity(0.25), 220)),
+        Positioned(bottom: -100, right: -70, child: _blurCircle(AppColors.neonCyan.withOpacity(0.20), 260)),
         Positioned.fill(child: child),
       ],
     );
@@ -343,8 +293,149 @@ class NeonBackdrop extends StatelessWidget {
   }
 }
 
+/// Тугмаи шинокунандаи неон бо аломати "+" — ҳамеша дар кунҷи поёни рост
+/// (тавассути Scaffold.floatingActionButton + FloatingActionButtonLocation.endFloat),
+/// айнан мисли WhatsApp.
+class NeonFab extends StatelessWidget {
+  final VoidCallback onPressed;
+  final IconData icon;
+  const NeonFab({super.key, required this.onPressed, this.icon = Icons.add_rounded});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 56,
+      height: 56,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: AppColors.neonGradient,
+        boxShadow: [
+          BoxShadow(color: AppColors.neonEmerald.withOpacity(0.5), blurRadius: 20, spreadRadius: 1),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onPressed,
+          child: Icon(icon, color: AppColors.background, size: 26),
+        ),
+      ),
+    );
+  }
+}
+
 // ============================================================
-// ЭКРАНИ РӮЙХАТИ ЧАТҲО (Асосӣ)
+// AUTH GATE
+// ============================================================
+class AuthGate extends StatefulWidget {
+  const AuthGate({super.key});
+
+  @override
+  State<AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<AuthGate> {
+  late Future<User?> _authFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _authFuture = _ensureSignedIn();
+  }
+
+  Future<User?> _ensureSignedIn() async {
+    final auth = FirebaseAuth.instance;
+    if (auth.currentUser != null) return auth.currentUser;
+    final credential = await auth.signInAnonymously();
+    return credential.user;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<User?>(
+      future: _authFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return _buildLoading();
+        }
+        if (snapshot.hasError || snapshot.data == null) {
+          return _buildError(snapshot.error);
+        }
+        return const ChatListScreen();
+      },
+    );
+  }
+
+  Widget _buildLoading() {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: NeonBackdrop(
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const AppLogo(size: 56),
+              const SizedBox(height: 22),
+              const CircularProgressIndicator(color: AppColors.neonEmerald),
+              const SizedBox(height: 16),
+              const Text('Пайвастшавӣ ба Firebase...', style: TextStyle(color: AppColors.textSecondary)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildError(Object? error) {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: NeonBackdrop(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: GlassContainer(
+              borderRadius: 20,
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.error_outline_rounded, color: AppColors.neonCyan, size: 40),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Пайвастшавӣ ба Firebase ноком шуд',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700, fontSize: 16),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Санҷед, ки дар Firebase Console → Authentication → Sign-in method '
+                    'усули "Anonymous" фаъол аст.\n\n$error',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                  ),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.neonEmerald,
+                      foregroundColor: AppColors.background,
+                    ),
+                    onPressed: () => setState(() => _authFuture = _ensureSignedIn()),
+                    child: const Text('Аз нав кӯшиш кунед'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================
+// ЭКРАНИ АСОСӢ — Tabs + FAB ба услуби WhatsApp
 // ============================================================
 class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});
@@ -353,56 +444,62 @@ class ChatListScreen extends StatefulWidget {
   State<ChatListScreen> createState() => _ChatListScreenState();
 }
 
-class _ChatListScreenState extends State<ChatListScreen> {
-  late List<ChatConversation> _conversations;
+class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProviderStateMixin {
+  late final TabController _tabController;
 
   @override
   void initState() {
     super.initState();
-    _conversations = MockData.getConversations();
+    _tabController = TabController(length: 3, vsync: this);
+    _tabController.addListener(() => setState(() {}));
   }
 
-  void _openChat(ChatConversation convo) async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => ChatDetailScreen(conversation: convo)),
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  void _openNewChatSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _NewChatSheet(),
     );
-    setState(() {}); // навсозии рӯйхат баъд аз бозгашт
+  }
+
+  // Тугмаи шинокунанда — танҳо дар "Чатҳо" ва "Зангҳо" нишон дода мешавад,
+  // дар "Танзимот" пинҳон аст (айнан мисли WhatsApp).
+  Widget? _buildFab() {
+    switch (_tabController.index) {
+      case 0:
+        return NeonFab(onPressed: _openNewChatSheet);
+      case 1:
+        return NeonFab(onPressed: () => showComingSoonSnack(context, 'Занг'));
+      default:
+        return null;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final aiChat = _conversations.firstWhere((c) => c.isAIChat);
-    final userChats = _conversations.where((c) => !c.isAIChat).toList();
-
     return Scaffold(
       backgroundColor: AppColors.background,
+      floatingActionButton: _buildFab(),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       body: NeonBackdrop(
         child: SafeArea(
           child: Column(
             children: [
               _buildAppBar(),
-              const SizedBox(height: 8),
+              _buildTabBar(),
               Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  children: [
-                    _buildAIAssistantTile(aiChat),
-                    const SizedBox(height: 18),
-                    Padding(
-                      padding: const EdgeInsets.only(left: 6, bottom: 10),
-                      child: Text(
-                        'СӮҲБАТҲО',
-                        style: TextStyle(
-                          color: AppColors.textSecondary,
-                          fontSize: 12,
-                          letterSpacing: 1.5,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    ...userChats.map((c) => _buildChatTile(c)),
-                    const SizedBox(height: 24),
+                child: TabBarView(
+                  controller: _tabController,
+                  children: const [
+                    _ChatsTab(),
+                    _CallsTab(),
+                    _SettingsTab(),
                   ],
                 ),
               ),
@@ -422,9 +519,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
           const AppLogo(),
           Row(
             children: [
-              _iconButton(Icons.search_rounded),
+              _iconButton(Icons.search_rounded, onTap: () => showComingSoonSnack(context, 'Ҷустуҷӯ')),
               const SizedBox(width: 10),
-              _iconButton(Icons.more_vert_rounded),
+              _iconButton(Icons.more_vert_rounded, onTap: () => showComingSoonSnack(context, 'Феҳристи иловагӣ')),
             ],
           ),
         ],
@@ -432,154 +529,196 @@ class _ChatListScreenState extends State<ChatListScreen> {
     );
   }
 
-  Widget _iconButton(IconData icon) {
-    return GlassContainer(
-      borderRadius: 14,
-      padding: const EdgeInsets.all(10),
-      child: Icon(icon, color: AppColors.textPrimary, size: 20),
+  Widget _iconButton(IconData icon, {required VoidCallback onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: GlassContainer(
+        borderRadius: 14,
+        padding: const EdgeInsets.all(10),
+        child: Icon(icon, color: AppColors.textPrimary, size: 20),
+      ),
     );
   }
 
-  Widget _buildAIAssistantTile(ChatConversation convo) {
-    return GestureDetector(
-      onTap: () => _openChat(convo),
+  // TabBar-и болои феҳрист — "Чатҳо / Зангҳо / Танзимот", айнан ҷои
+  // ин се бахши WhatsApp-ро иваз мекунад (навигатсияи шинос).
+  Widget _buildTabBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
       child: GlassContainer(
-        borderRadius: 22,
-        glow: true,
-        glowColor: AppColors.neonEmerald,
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            Container(
-              width: 54,
-              height: 54,
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: AppColors.neonGradient,
-              ),
-              child: Icon(convo.avatarIcon,
-                  color: AppColors.background, size: 28),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Text(
-                        'AI Ассистент',
-                        style: TextStyle(
-                          color: AppColors.textPrimary,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 16,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          gradient: AppColors.neonGradient,
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: const Text(
-                          'AI',
-                          style: TextStyle(
-                              fontSize: 9,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.black),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    convo.lastMessage,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        color: AppColors.textSecondary, fontSize: 13),
-                  ),
-                ],
-              ),
-            ),
-            Icon(Icons.chevron_right_rounded,
-                color: AppColors.textSecondary.withOpacity(0.6)),
+        borderRadius: 16,
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        child: TabBar(
+          controller: _tabController,
+          indicator: BoxDecoration(gradient: AppColors.neonGradient, borderRadius: BorderRadius.circular(12)),
+          indicatorSize: TabBarIndicatorSize.tab,
+          dividerColor: Colors.transparent,
+          labelColor: AppColors.background,
+          unselectedLabelColor: AppColors.textSecondary,
+          labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+          unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
+          tabs: const [
+            Tab(text: 'Чатҳо'),
+            Tab(text: 'Зангҳо'),
+            Tab(text: 'Танзимот'),
           ],
         ),
       ),
     );
   }
+}
 
-  Widget _buildChatTile(ChatConversation convo) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: GestureDetector(
-        onTap: () => _openChat(convo),
-        child: GlassContainer(
-          borderRadius: 18,
-          padding: const EdgeInsets.all(14),
+// ============================================================
+// БАХШИ "ЧАТҲО" (феҳристи чат ба тарзи WhatsApp)
+// ============================================================
+class _ChatsTab extends StatelessWidget {
+  const _ChatsTab();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 90),
+      children: const [
+        _ChatTile(conversation: AppChats.aiAssistant, highlighted: true),
+        SizedBox(height: 6),
+        _ChatTile(conversation: AppChats.general),
+      ],
+    );
+  }
+}
+
+/// Сатри чат — сохтори дуқабата (ном+вақт, паём+бирча) айнан мисли WhatsApp:
+/// аватар дар чап, ном ва вақт дар сатри боло, паёми охирин дар сатри поён.
+class _ChatTile extends StatelessWidget {
+  final ChatConversation conversation;
+  final bool highlighted;
+  const _ChatTile({required this.conversation, this.highlighted = false});
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> get _lastMessageStream => FirebaseFirestore
+      .instance
+      .collection('chats')
+      .doc(conversation.id)
+      .collection('messages')
+      .orderBy('createdAt', descending: true)
+      .limit(1)
+      .snapshots();
+
+  String _formatTime(DateTime? t) {
+    if (t == null) return '';
+    final now = DateTime.now();
+    if (now.difference(t).inDays >= 1) return '${t.day}/${t.month}';
+    final h = t.hour.toString().padLeft(2, '0');
+    final m = t.minute.toString().padLeft(2, '0');
+    return '$h:$m';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(highlighted ? 18 : 10),
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => ChatDetailScreen(conversation: conversation)),
+        ),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 10),
+          decoration: highlighted
+              ? BoxDecoration(
+                  color: AppColors.neonEmerald.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: AppColors.neonEmerald.withOpacity(0.3)),
+                )
+              : const BoxDecoration(
+                  border: Border(bottom: BorderSide(color: AppColors.glassBorder, width: 0.6)),
+                ),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Stack(
-                children: [
-                  Container(
-                    width: 46,
-                    height: 46,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: AppColors.surface,
-                      border: Border.all(color: AppColors.glassBorder),
-                    ),
-                    child: Icon(convo.avatarIcon,
-                        color: AppColors.textSecondary, size: 22),
-                  ),
-                  if (convo.online)
-                    Positioned(
-                      right: 0,
-                      bottom: 0,
-                      child: Container(
-                        width: 12,
-                        height: 12,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: AppColors.neonEmerald,
-                          border:
-                              Border.all(color: AppColors.background, width: 2),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      convo.name,
-                      style: const TextStyle(
-                          color: AppColors.textPrimary,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 15),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      convo.lastMessage,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                          color: AppColors.textSecondary, fontSize: 13),
-                    ),
-                  ],
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: conversation.isAIChat ? AppColors.neonGradient : null,
+                  color: conversation.isAIChat ? null : AppColors.surface,
+                  border: conversation.isAIChat ? null : Border.all(color: AppColors.glassBorder),
+                ),
+                child: Icon(
+                  conversation.avatarIcon,
+                  color: conversation.isAIChat ? AppColors.background : AppColors.textSecondary,
+                  size: 24,
                 ),
               ),
-              Text(
-                _formatTime(convo.lastTime),
-                style: TextStyle(
-                    color: AppColors.textSecondary.withOpacity(0.7),
-                    fontSize: 11),
+              const SizedBox(width: 14),
+              Expanded(
+                child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  stream: _lastMessageStream,
+                  builder: (context, snapshot) {
+                    String preview = conversation.isAIChat ? 'Ба ман чизе нависед...' : 'Оғози сӯҳбат кунед';
+                    String time = '';
+                    if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
+                      final data = snapshot.data!.docs.first.data();
+                      preview = (data['text'] ?? preview) as String;
+                      time = _formatTime((data['createdAt'] as Timestamp?)?.toDate());
+                    }
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // САТРИ БОЛО: ном (+ бирчаи AI) ......... вақт
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Flexible(
+                                    child: Text(
+                                      conversation.name,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: AppColors.textPrimary,
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 15.5,
+                                      ),
+                                    ),
+                                  ),
+                                  if (conversation.isAIChat) ...[
+                                    const SizedBox(width: 6),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        gradient: AppColors.neonGradient,
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: const Text(
+                                        'AI',
+                                        style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: Colors.black),
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                            Text(
+                              time,
+                              style: TextStyle(color: AppColors.textSecondary.withOpacity(0.7), fontSize: 11.5),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 3),
+                        // САТРИ ПОЁН: паёми охирин
+                        Text(
+                          preview,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: AppColors.textSecondary, fontSize: 13.5),
+                        ),
+                      ],
+                    );
+                  },
+                ),
               ),
             ],
           ),
@@ -587,15 +726,144 @@ class _ChatListScreenState extends State<ChatListScreen> {
       ),
     );
   }
+}
 
-  String _formatTime(DateTime t) {
-    final now = DateTime.now();
-    if (now.difference(t).inDays >= 1) {
-      return '${t.day}/${t.month}';
-    }
-    final h = t.hour.toString().padLeft(2, '0');
-    final m = t.minute.toString().padLeft(2, '0');
-    return '$h:$m';
+/// Феҳристи интихоби чат ҳангоми пахши тугмаи "+" (мисли пахши FAB дар WhatsApp)
+class _NewChatSheet extends StatelessWidget {
+  const _NewChatSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      child: GlassContainer(
+        borderRadius: 24,
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 14),
+                decoration: BoxDecoration(color: AppColors.glassBorder, borderRadius: BorderRadius.circular(4)),
+              ),
+            ),
+            const Text('Чати нав', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700, fontSize: 16)),
+            const SizedBox(height: 12),
+            ...AppChats.all.map(
+              (c) => ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: c.isAIChat ? AppColors.neonGradient : null,
+                    color: c.isAIChat ? null : AppColors.surface,
+                    border: c.isAIChat ? null : Border.all(color: AppColors.glassBorder),
+                  ),
+                  child: Icon(c.avatarIcon, color: c.isAIChat ? AppColors.background : AppColors.textSecondary, size: 20),
+                ),
+                title: Text(c.name, style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600)),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => ChatDetailScreen(conversation: c)));
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================
+// БАХШИ "ЗАНГҲО" (ҳолати холии воқеӣ, мисли WhatsApp вақте занге нест)
+// ============================================================
+class _CallsTab extends StatelessWidget {
+  const _CallsTab();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.call_outlined, color: AppColors.textSecondary.withOpacity(0.5), size: 56),
+            const SizedBox(height: 16),
+            const Text('Ягон занг нест', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700, fontSize: 16)),
+            const SizedBox(height: 8),
+            Text(
+              'Зангҳои шумо дар ин ҷо намоён мешаванд',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppColors.textSecondary.withOpacity(0.8), fontSize: 13),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================
+// БАХШИ "ТАНЗИМОТ" (профили корбари беном + баромадан)
+// ============================================================
+class _SettingsTab extends StatelessWidget {
+  const _SettingsTab();
+
+  Future<void> _signOut(BuildContext context) async {
+    await FirebaseAuth.instance.signOut();
+    if (!context.mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const AuthGate()),
+      (route) => false,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '—';
+    final shortId = uid.length > 12 ? uid.substring(0, 12) : uid;
+
+    return ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        GlassContainer(
+          borderRadius: 20,
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            children: [
+              Container(
+                width: 72,
+                height: 72,
+                decoration: const BoxDecoration(shape: BoxShape.circle, gradient: AppColors.neonGradient),
+                child: const Icon(Icons.person_rounded, color: AppColors.background, size: 36),
+              ),
+              const SizedBox(height: 14),
+              const Text('Корбари беном', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700, fontSize: 16)),
+              const SizedBox(height: 4),
+              Text('ID: $shortId...', style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        GlassContainer(
+          borderRadius: 16,
+          padding: EdgeInsets.zero,
+          child: ListTile(
+            leading: const Icon(Icons.logout_rounded, color: AppColors.neonCyan),
+            title: const Text('Баромадан', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600)),
+            onTap: () => _signOut(context),
+          ),
+        ),
+      ],
+    );
   }
 }
 
@@ -614,6 +882,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   bool _isAITyping = false;
+
+  CollectionReference<Map<String, dynamic>> get _messagesRef => FirebaseFirestore.instance
+      .collection('chats')
+      .doc(widget.conversation.id)
+      .collection('messages');
 
   @override
   void dispose() {
@@ -634,72 +907,39 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     });
   }
 
-  void _handleSend() {
+  Future<void> _handleSend() async {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? 'anon';
+    _controller.clear();
 
-    setState(() {
-      widget.conversation.messages.add(
-        ChatMessage(
-          id: DateTime.now().millisecondsSinceEpoch.toString(),
-          text: text,
-          isMe: true,
-          isAI: false,
-        ),
-      );
-      widget.conversation.lastMessage = text;
-      widget.conversation.lastTime = DateTime.now();
-      _controller.clear();
+    await _messagesRef.add({
+      'text': text,
+      'senderId': uid,
+      'isAI': false,
+      'createdAt': FieldValue.serverTimestamp(),
     });
     _scrollToBottom();
 
     if (widget.conversation.isAIChat) {
       _simulateAIReply();
-    } else {
-      _simulateContactReply();
     }
   }
 
   void _simulateAIReply() {
     setState(() => _isAITyping = true);
     _scrollToBottom();
-    Future.delayed(const Duration(milliseconds: 1400), () {
+    Future.delayed(const Duration(milliseconds: 1400), () async {
       if (!mounted) return;
-      final reply =
-          MockData.aiReplies[DateTime.now().millisecond % MockData.aiReplies.length];
-      setState(() {
-        _isAITyping = false;
-        widget.conversation.messages.add(
-          ChatMessage(
-            id: DateTime.now().millisecondsSinceEpoch.toString(),
-            text: reply,
-            isMe: false,
-            isAI: true,
-          ),
-        );
-        widget.conversation.lastMessage = reply;
-        widget.conversation.lastTime = DateTime.now();
+      final reply = MockAIReplies.replies[DateTime.now().millisecond % MockAIReplies.replies.length];
+      await _messagesRef.add({
+        'text': reply,
+        'senderId': 'ai_bot',
+        'isAI': true,
+        'createdAt': FieldValue.serverTimestamp(),
       });
-      _scrollToBottom();
-    });
-  }
-
-  void _simulateContactReply() {
-    Future.delayed(const Duration(milliseconds: 1800), () {
       if (!mounted) return;
-      const reply = 'Хабаратонро гирифтам 👍';
-      setState(() {
-        widget.conversation.messages.add(
-          ChatMessage(
-            id: DateTime.now().millisecondsSinceEpoch.toString(),
-            text: reply,
-            isMe: false,
-            isAI: false,
-          ),
-        );
-        widget.conversation.lastMessage = reply;
-        widget.conversation.lastTime = DateTime.now();
-      });
+      setState(() => _isAITyping = false);
       _scrollToBottom();
     });
   }
@@ -707,6 +947,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final convo = widget.conversation;
+    final currentUid = FirebaseAuth.instance.currentUser?.uid;
+
     return Scaffold(
       backgroundColor: AppColors.background,
       resizeToAvoidBottomInset: true,
@@ -716,16 +958,38 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             children: [
               _buildHeader(convo),
               Expanded(
-                child: ListView.builder(
-                  controller: _scrollController,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  itemCount: convo.messages.length + (_isAITyping ? 1 : 0),
-                  itemBuilder: (context, index) {
-                    if (_isAITyping && index == convo.messages.length) {
-                      return const TypingBubble();
+                child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  stream: _messagesRef.orderBy('createdAt', descending: false).snapshots(),
+                  builder: (context, snapshot) {
+                    if (snapshot.hasError) {
+                      return Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Text(
+                            'Хатои Firestore: ${snapshot.error}',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: AppColors.textSecondary),
+                          ),
+                        ),
+                      );
                     }
-                    return MessageBubble(message: convo.messages[index]);
+                    if (!snapshot.hasData) {
+                      return const Center(child: CircularProgressIndicator(color: AppColors.neonEmerald));
+                    }
+                    final docs = snapshot.data!.docs;
+                    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+                    return ListView.builder(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      itemCount: docs.length + (_isAITyping ? 1 : 0),
+                      itemBuilder: (context, index) {
+                        if (_isAITyping && index == docs.length) {
+                          return const TypingBubble();
+                        }
+                        final message = ChatMessage.fromDoc(docs[index]);
+                        return MessageBubble(message: message, isMe: message.senderId == currentUid);
+                      },
+                    );
                   },
                 ),
               ),
@@ -737,19 +1001,19 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     );
   }
 
+  // Сарлавҳа бо ду тугмаи занг (video/voice), айнан ба тарзи WhatsApp
   Widget _buildHeader(ChatConversation convo) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(10, 10, 16, 10),
+      padding: const EdgeInsets.fromLTRB(6, 10, 6, 10),
       child: GlassContainer(
         borderRadius: 18,
         glow: convo.isAIChat,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
         child: Row(
           children: [
             IconButton(
               onPressed: () => Navigator.pop(context),
-              icon: const Icon(Icons.arrow_back_ios_new_rounded,
-                  color: AppColors.textPrimary, size: 18),
+              icon: const Icon(Icons.arrow_back_ios_new_rounded, color: AppColors.textPrimary, size: 18),
             ),
             Container(
               width: 40,
@@ -758,13 +1022,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 shape: BoxShape.circle,
                 gradient: convo.isAIChat ? AppColors.neonGradient : null,
                 color: convo.isAIChat ? null : AppColors.surface,
-                border:
-                    convo.isAIChat ? null : Border.all(color: AppColors.glassBorder),
+                border: convo.isAIChat ? null : Border.all(color: AppColors.glassBorder),
               ),
               child: Icon(
                 convo.avatarIcon,
-                color:
-                    convo.isAIChat ? AppColors.background : AppColors.textSecondary,
+                color: convo.isAIChat ? AppColors.background : AppColors.textSecondary,
                 size: 20,
               ),
             ),
@@ -776,24 +1038,23 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 children: [
                   Text(
                     convo.name,
-                    style: const TextStyle(
-                        color: AppColors.textPrimary,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 15),
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700, fontSize: 15),
                   ),
                   Text(
-                    convo.isAIChat
-                        ? 'Ҳамеша дастрас'
-                        : (convo.online ? 'Онлайн' : 'Дар шабака набуд'),
-                    style: TextStyle(
-                      color: convo.online || convo.isAIChat
-                          ? AppColors.neonEmerald
-                          : AppColors.textSecondary,
-                      fontSize: 11,
-                    ),
+                    convo.isAIChat ? 'Ҳамеша дастрас' : 'Firestore · вақти воқеӣ',
+                    style: const TextStyle(color: AppColors.neonEmerald, fontSize: 11),
                   ),
                 ],
               ),
+            ),
+            IconButton(
+              onPressed: () => showComingSoonSnack(context, 'Занги видео'),
+              icon: const Icon(Icons.videocam_rounded, color: AppColors.textSecondary, size: 22),
+            ),
+            IconButton(
+              onPressed: () => showComingSoonSnack(context, 'Занг'),
+              icon: const Icon(Icons.call_rounded, color: AppColors.textSecondary, size: 19),
             ),
           ],
         ),
@@ -819,8 +1080,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   hintText: 'Паём нависед...',
                   hintStyle: TextStyle(color: AppColors.textSecondary),
                   border: InputBorder.none,
-                  contentPadding:
-                      EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 ),
                 onSubmitted: (_) => _handleSend(),
               ),
@@ -830,12 +1090,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               child: Container(
                 width: 42,
                 height: 42,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: AppColors.neonGradient,
-                ),
-                child: const Icon(Icons.arrow_upward_rounded,
-                    color: AppColors.background, size: 20),
+                decoration: const BoxDecoration(shape: BoxShape.circle, gradient: AppColors.neonGradient),
+                child: const Icon(Icons.arrow_upward_rounded, color: AppColors.background, size: 20),
               ),
             ),
           ],
@@ -846,26 +1102,24 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 }
 
 // ============================================================
-// ВИҶЕТҲОИ ПАЁМ (Message Bubbles)
+// ВИҶЕТҲОИ ПАЁМ
 // ============================================================
 class MessageBubble extends StatelessWidget {
   final ChatMessage message;
-  const MessageBubble({super.key, required this.message});
+  final bool isMe;
+  const MessageBubble({super.key, required this.message, required this.isMe});
 
   @override
   Widget build(BuildContext context) {
-    final isMe = message.isMe;
     final isAI = message.isAI;
 
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
-        constraints:
-            BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
         margin: const EdgeInsets.symmetric(vertical: 5),
         child: Column(
-          crossAxisAlignment:
-              isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
           children: [
             if (isAI)
               Padding(
@@ -873,42 +1127,27 @@ class MessageBubble extends StatelessWidget {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.auto_awesome_rounded,
-                        size: 12, color: AppColors.neonCyan),
+                    Icon(Icons.auto_awesome_rounded, size: 12, color: AppColors.neonCyan),
                     const SizedBox(width: 4),
-                    Text('AI Assistant',
-                        style: TextStyle(
-                            fontSize: 10,
-                            color: AppColors.neonCyan.withOpacity(0.9))),
+                    Text('AI Assistant', style: TextStyle(fontSize: 10, color: AppColors.neonCyan.withOpacity(0.9))),
                   ],
                 ),
               ),
             Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
               decoration: BoxDecoration(
                 gradient: isMe ? AppColors.neonGradient : null,
                 color: isMe ? null : AppColors.glassFill,
                 border: isMe
                     ? null
-                    : Border.all(
-                        color: isAI
-                            ? AppColors.neonCyan.withOpacity(0.4)
-                            : AppColors.glassBorder,
-                      ),
+                    : Border.all(color: isAI ? AppColors.neonCyan.withOpacity(0.4) : AppColors.glassBorder),
                 borderRadius: BorderRadius.only(
                   topLeft: const Radius.circular(18),
                   topRight: const Radius.circular(18),
                   bottomLeft: Radius.circular(isMe ? 18 : 4),
                   bottomRight: Radius.circular(isMe ? 4 : 18),
                 ),
-                boxShadow: isAI
-                    ? [
-                        BoxShadow(
-                            color: AppColors.neonCyan.withOpacity(0.15),
-                            blurRadius: 12)
-                      ]
-                    : null,
+                boxShadow: isAI ? [BoxShadow(color: AppColors.neonCyan.withOpacity(0.15), blurRadius: 12)] : null,
               ),
               child: Text(
                 message.text,
@@ -924,9 +1163,7 @@ class MessageBubble extends StatelessWidget {
               padding: const EdgeInsets.only(top: 3, left: 4, right: 4),
               child: Text(
                 _formatTime(message.timestamp),
-                style: TextStyle(
-                    color: AppColors.textSecondary.withOpacity(0.6),
-                    fontSize: 10),
+                style: TextStyle(color: AppColors.textSecondary.withOpacity(0.6), fontSize: 10),
               ),
             ),
           ],
@@ -935,14 +1172,14 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
-  String _formatTime(DateTime t) {
+  String _formatTime(DateTime? t) {
+    if (t == null) return '...';
     final h = t.hour.toString().padLeft(2, '0');
     final m = t.minute.toString().padLeft(2, '0');
     return '$h:$m';
   }
 }
 
-/// Нишондиҳандаи "AI дар ҳоли навиштан аст..."
 class TypingBubble extends StatefulWidget {
   const TypingBubble({super.key});
 
@@ -950,16 +1187,13 @@ class TypingBubble extends StatefulWidget {
   State<TypingBubble> createState() => _TypingBubbleState();
 }
 
-class _TypingBubbleState extends State<TypingBubble>
-    with SingleTickerProviderStateMixin {
+class _TypingBubbleState extends State<TypingBubble> with SingleTickerProviderStateMixin {
   late AnimationController _controller;
 
   @override
   void initState() {
     super.initState();
-    _controller =
-        AnimationController(vsync: this, duration: const Duration(milliseconds: 900))
-          ..repeat();
+    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 900))..repeat();
   }
 
   @override
@@ -992,8 +1226,7 @@ class _TypingBubbleState extends State<TypingBubble>
               mainAxisSize: MainAxisSize.min,
               children: List.generate(3, (i) {
                 final t = (_controller.value + (i * 0.2)) % 1.0;
-                final scale =
-                    0.5 + (0.5 * (1 - (t - 0.5).abs() * 2).clamp(0.0, 1.0));
+                final scale = 0.5 + (0.5 * (1 - (t - 0.5).abs() * 2).clamp(0.0, 1.0));
                 return Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 2),
                   child: Transform.scale(
@@ -1001,8 +1234,7 @@ class _TypingBubbleState extends State<TypingBubble>
                     child: Container(
                       width: 7,
                       height: 7,
-                      decoration: const BoxDecoration(
-                          shape: BoxShape.circle, gradient: AppColors.neonGradient),
+                      decoration: const BoxDecoration(shape: BoxShape.circle, gradient: AppColors.neonGradient),
                     ),
                   ),
                 );
